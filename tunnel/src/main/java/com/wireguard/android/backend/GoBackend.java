@@ -5,8 +5,12 @@
 
 package com.wireguard.android.backend;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.system.OsConstants;
@@ -238,7 +242,12 @@ public final class GoBackend implements Backend {
             final VpnService service;
             if (!vpnService.isDone()) {
                 Log.d(TAG, "Requesting to start VpnService");
-                context.startService(new Intent(context, VpnService.class));
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(new Intent(context, VpnService.class));
+                } else {
+                    context.startService(new Intent(context, VpnService.class));
+                }
+
             }
 
             try {
@@ -400,6 +409,7 @@ public final class GoBackend implements Backend {
 
         @Override
         public void onCreate() {
+            foregroundStarter();
             vpnService.complete(this);
             super.onCreate();
         }
@@ -421,8 +431,30 @@ public final class GoBackend implements Backend {
             super.onDestroy();
         }
 
+        public void foregroundStarter() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                final String CHANNEL_ID = "wireguard_go_backend";
+                final NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
+                        "Wireguard GO Backend",
+                        NotificationManager.IMPORTANCE_DEFAULT);
+
+                ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(channel);
+
+                final Notification notification = new Notification.Builder(this, CHANNEL_ID)
+                        .setContentTitle("")
+                        .setContentText("").build();
+
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    startForeground(1, notification);
+                } else {
+                    startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
+                }
+            }
+        }
+
         @Override
         public int onStartCommand(@Nullable final Intent intent, final int flags, final int startId) {
+            foregroundStarter();
             vpnService.complete(this);
             if (intent == null || intent.getComponent() == null || !intent.getComponent().getPackageName().equals(getPackageName())) {
                 Log.d(TAG, "Service started by Always-on VPN feature");
